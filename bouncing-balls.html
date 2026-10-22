@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bouncing Balls Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #121212;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 16px 20px;
+            border-radius: 12px;
+            color: #fff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            min-width: 260px;
+            user-select: none;
+            z-index: 10;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .control-group label {
+            font-size: 13px;
+            color: #aaa;
+            display: flex;
+            justify-content: space-between;
+        }
+        .control-group label span {
+            color: #fff;
+            font-weight: 600;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #6366f1;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <div class="control-group">
+            <label for="sizeSlider">Ball Size: <span id="sizeVal">20</span>px</label>
+            <input type="range" id="sizeSlider" min="10" max="60" value="20">
+        </div>
+        <div class="control-group">
+            <label for="countSlider">Number of Balls: <span id="countVal">1</span></label>
+            <input type="range" id="countSlider" min="1" max="50" value="1">
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const sizeSlider = document.getElementById('sizeSlider');
+        const countSlider = document.getElementById('countSlider');
+        const sizeVal = document.getElementById('sizeVal');
+        const countVal = document.getElementById('countVal');
+
+        let ballRadius = parseInt(sizeSlider.value);
+        let ballCount = parseInt(countSlider.value);
+
+        class Ball {
+            constructor(x, y, radius) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                
+                // Random velocities (ensuring they aren't zero)
+                this.vx = (Math.random() - 0.5) * 8;
+                this.vy = (Math.random() - 0.5) * 8;
+                if (Math.abs(this.vx) < 1.5) this.vx = this.vx < 0 ? -2 : 2;
+                if (Math.abs(this.vy) < 1.5) this.vy = this.vy < 0 ? -2 : 2;
+                
+                // Random vibrant color using HSL
+                this.color = `hsl(${Math.random() * 360}, 85%, 60%)`;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 12;
+                ctx.fill();
+                ctx.shadowBlur = 0; // Reset for performance
+                ctx.closePath();
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Wall boundary checks & bounce
+                if (this.x - this.radius < 0) {
+                    this.x = this.radius;
+                    this.vx = -this.vx;
+                } else if (this.x + this.radius > canvas.width) {
+                    this.x = canvas.width - this.radius;
+                    this.vx = -this.vx;
+                }
+
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.vy = -this.vy;
+                } else if (this.y + this.radius > canvas.height) {
+                    this.y = canvas.height - this.radius;
+                    this.vy = -this.vy;
+                }
+            }
+        }
+
+        let balls = [];
+
+        function initBalls() {
+            // Adjust array size based on slider count
+            while (balls.length < ballCount) {
+                let radius = ballRadius;
+                let x = Math.random() * (canvas.width - radius * 4) + radius * 2;
+                let y = Math.random() * (canvas.height - radius * 4) + radius * 2;
+                balls.push(new Ball(x, y, radius));
+            }
+            while (balls.length > ballCount) {
+                balls.pop();
+            }
+
+            // Update existing balls' radii and keep them in bounds
+            balls.forEach(b => {
+                b.radius = ballRadius;
+                b.x = Math.max(b.radius, Math.min(canvas.width - b.radius, b.x));
+                b.y = Math.max(b.radius, Math.min(canvas.height - b.radius, b.y));
+            });
+        }
+
+        initBalls();
+
+        sizeSlider.addEventListener('input', (e) => {
+            ballRadius = parseInt(e.target.value);
+            sizeVal.textContent = ballRadius;
+            initBalls();
+        });
+
+        countSlider.addEventListener('input', (e) => {
+            ballCount = parseInt(e.target.value);
+            countVal.textContent = ballCount;
+            initBalls();
+        });
+
+        function resolveCollisions() {
+            for (let i = 0; i < balls.length; i++) {
+                for (let j = i + 1; j < balls.length; j++) {
+                    let b1 = balls[i];
+                    let b2 = balls[j];
+
+                    let dx = b2.x - b1.x;
+                    let dy = b2.y - b1.y;
+                    let dist = Math.hypot(dx, dy);
+                    let minDist = b1.radius + b2.radius;
+
+                    if (dist < minDist) {
+                        // Positional overlap resolution to prevent sticking
+                        let overlap = minDist - dist;
+                        let nx = dx / dist;
+                        let ny = dy / dist;
+
+                        // Mass proportional to area (radius^2)
+                        let m1 = b1.radius * b1.radius;
+                        let m2 = b2.radius * b2.radius;
+                        let totalM = m1 + m2;
+
+                        b1.x -= nx * overlap * (m2 / totalM);
+                        b1.y -= ny * overlap * (m2 / totalM);
+                        b2.x += nx * overlap * (m1 / totalM);
+                        b2.y += ny * overlap * (m1 / totalM);
+
+                        // Elastic collision physics (2D momentum conservation)
+                        let kx = b1.vx - b2.vx;
+                        let ky = b1.vy - b2.vy;
+                        let p = 2 * (nx * kx + ny * ky) / totalM;
+
+                        b1.vx -= p * m2 * nx;
+                        b1.vy -= p * m2 * ny;
+                        b2.vx += p * m1 * nx;
+                        b2.vy += p * m1 * ny;
+                    }
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let ball of balls) {
+                ball.update();
+            }
+            resolveCollisions();
+
+            for (let ball of balls) {
+                ball.draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
+

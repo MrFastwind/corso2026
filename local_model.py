@@ -1,6 +1,6 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
+#
 # 1. Device Selection 
 # (Set device = "cpu" manually if you want to test the non-CUDA execution path)
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -21,7 +21,7 @@ model.to(device)
 
 # 4. Prepare Input Prompt
 #prompt = "The future of artificial intelligence is"
-prompt = "The best food to eat with bread is"
+prompt = "The best friend of man is"
 inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
 # 5. Generate Response
