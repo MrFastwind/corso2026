@@ -20,7 +20,8 @@ model = AutoModelForCausalLM.from_pretrained(model_name)
 model.to(device)
 
 # 4. Prepare Input Prompt
-prompt = "The future of artificial intelligence is"
+#prompt = "The future of artificial intelligence is"
+prompt = "The best food to eat with bread is"
 inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
 # 5. Generate Response
