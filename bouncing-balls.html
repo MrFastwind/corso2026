@@ -60,6 +60,104 @@
             accent-color: #6366f1;
             cursor: pointer;
         }
+        select {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+        select:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        select:focus {
+            border-color: #6366f1;
+        }
+        select option {
+            background: #1e1e1e;
+            color: #fff;
+        }
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: #aaa;
+            cursor: pointer;
+        }
+        .toggle-row input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #6366f1;
+            cursor: pointer;
+        }
+        [hidden] {
+            display: none !important;
+        }
+        .editor {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 16px 20px;
+            border-radius: 12px;
+            color: #fff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 280px;
+            user-select: none;
+            z-index: 10;
+        }
+        .editor h2 {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+        .toolbar {
+            display: flex;
+            gap: 8px;
+        }
+        .toolbar button {
+            flex: 1;
+            padding: 8px 6px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .toolbar button:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        .toolbar button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .toolbar button.danger:hover:not(:disabled) {
+            background: rgba(239, 68, 68, 0.25);
+            border-color: rgba(239, 68, 68, 0.6);
+        }
+        .selection-info {
+            font-size: 12px;
+            color: #aaa;
+        }
+        .hint {
+            font-size: 11px;
+            color: #777;
+            line-height: 1.45;
+        }
     </style>
 </head>
 <body>
@@ -73,6 +171,44 @@
             <label for="countSlider">Number of Balls: <span id="countVal">1</span></label>
             <input type="range" id="countSlider" min="1" max="50" value="1">
         </div>
+        <div class="control-group">
+            <label for="colorMode">Color Mode</label>
+            <select id="colorMode">
+                <option value="random" selected>Random</option>
+                <option value="speed">Gradient by Speed</option>
+                <option value="hue">Blue &rarr; Red by Speed</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label class="toggle-row" for="showDirection">
+                <input type="checkbox" id="showDirection">
+                <span>Show Direction</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="editor">
+        <h2>Objects</h2>
+        <div class="toolbar">
+            <button id="addWallBtn" type="button">+ Wall</button>
+            <button id="addForceBtn" type="button">+ Force</button>
+            <button id="addSlowBtn" type="button">+ Slow</button>
+            <button id="deleteBtn" type="button" class="danger" disabled>Delete</button>
+        </div>
+        <div class="selection-info" id="selectionInfo">Nothing selected</div>
+        <div class="control-group" id="rotationGroup" hidden>
+            <label for="rotationSlider">Rotation: <span id="rotationVal">0</span>&deg;</label>
+            <input type="range" id="rotationSlider" min="0" max="359" value="0">
+        </div>
+        <div class="control-group" id="strengthGroup" hidden>
+            <label for="strengthSlider">Force Strength: <span id="strengthVal">0.10</span></label>
+            <input type="range" id="strengthSlider" min="0" max="1" step="0.01" value="0.1">
+        </div>
+        <div class="control-group" id="slowGroup" hidden>
+            <label for="slowSlider">Slowdown: <span id="slowVal">0.10</span></label>
+            <input type="range" id="slowSlider" min="0" max="0.5" step="0.01" value="0.1">
+        </div>
+        <p class="hint">Click an object to select it. Drag to move, drag the round handle to rotate, arrows to nudge, Delete to remove.</p>
     </div>
 
     <canvas id="canvas"></canvas>
@@ -90,11 +226,40 @@
 
         const sizeSlider = document.getElementById('sizeSlider');
         const countSlider = document.getElementById('countSlider');
+        const colorModeSelect = document.getElementById('colorMode');
+        const showDirectionCheckbox = document.getElementById('showDirection');
         const sizeVal = document.getElementById('sizeVal');
         const countVal = document.getElementById('countVal');
 
         let ballRadius = parseInt(sizeSlider.value);
         let ballCount = parseInt(countSlider.value);
+        let colorMode = colorModeSelect.value;
+        let showDirection = showDirectionCheckbox.checked;
+
+        // Speed-based gradient: saturation ("amount of color") grows with speed.
+        // A single fixed hue is used for every ball; slow balls look washed
+        // out/gray, fast balls are vivid.
+        const SPEED_RANGE = 8; // px per frame mapped to the full gradient
+        const SATURATION_MIN = 0; // % saturation at standstill
+        const SATURATION_MAX = 90; // % saturation at max speed
+        const GRADIENT_HUE = 239; // fixed hue (matches the UI accent)
+        const GRADIENT_LIGHTNESS = 60; // % lightness held constant
+
+        function speedColor(speed) {
+            const t = Math.min(speed / SPEED_RANGE, 1);
+            const saturation = SATURATION_MIN + (SATURATION_MAX - SATURATION_MIN) * t;
+            return `hsl(${GRADIENT_HUE}, ${saturation}%, ${GRADIENT_LIGHTNESS}%)`;
+        }
+
+        // Hue gradient: slow balls are blue, fast balls are red.
+        const HUE_MIN = 210; // blue
+        const HUE_MAX = 0; // red
+
+        function speedHueColor(speed) {
+            const t = Math.min(speed / SPEED_RANGE, 1);
+            const hue = HUE_MIN + (HUE_MAX - HUE_MIN) * t;
+            return `hsl(${hue}, 90%, ${GRADIENT_LIGHTNESS}%)`;
+        }
 
         class Ball {
             constructor(x, y, radius) {
@@ -108,19 +273,74 @@
                 if (Math.abs(this.vx) < 1.5) this.vx = this.vx < 0 ? -2 : 2;
                 if (Math.abs(this.vy) < 1.5) this.vy = this.vy < 0 ? -2 : 2;
                 
-                // Random vibrant color using HSL
-                this.color = `hsl(${Math.random() * 360}, 85%, 60%)`;
+                // Random vibrant color using HSL (used in "random" mode)
+                this.hue = Math.random() * 360;
+                this.randomColor = `hsl(${this.hue}, 85%, 60%)`;
+            }
+
+            getColor() {
+                if (colorMode === 'speed') {
+                    return speedColor(Math.hypot(this.vx, this.vy));
+                }
+                if (colorMode === 'hue') {
+                    return speedHueColor(Math.hypot(this.vx, this.vy));
+                }
+                return this.randomColor;
             }
 
             draw() {
+                const color = this.getColor();
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                ctx.fillStyle = this.color;
-                ctx.shadowColor = this.color;
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
                 ctx.shadowBlur = 12;
                 ctx.fill();
                 ctx.shadowBlur = 0; // Reset for performance
                 ctx.closePath();
+            }
+
+            drawDirection() {
+                const speed = Math.hypot(this.vx, this.vy);
+                if (speed === 0) return;
+
+                const nx = this.vx / speed;
+                const ny = this.vy / speed;
+                const startX = this.x + nx * this.radius;
+                const startY = this.y + ny * this.radius;
+                const length = 15 + speed * 8;
+                const endX = this.x + nx * (this.radius + length);
+                const endY = this.y + ny * (this.radius + length);
+                const angle = Math.atan2(ny, nx);
+                const headSize = 7;
+
+                ctx.save();
+                ctx.globalAlpha = 0.65;
+                ctx.strokeStyle = this.getColor();
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+
+                // Main ray
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+
+                // Arrowhead
+                ctx.beginPath();
+                ctx.moveTo(endX, endY);
+                ctx.lineTo(
+                    endX - headSize * Math.cos(angle - Math.PI / 6),
+                    endY - headSize * Math.sin(angle - Math.PI / 6)
+                );
+                ctx.moveTo(endX, endY);
+                ctx.lineTo(
+                    endX - headSize * Math.cos(angle + Math.PI / 6),
+                    endY - headSize * Math.sin(angle + Math.PI / 6)
+                );
+                ctx.stroke();
+
+                ctx.restore();
             }
 
             update() {
@@ -147,6 +367,487 @@
         }
 
         let balls = [];
+
+        // ===================== Static objects =====================
+        // Walls are immovable and solid; force fields are intangible but
+        // accelerate any ball whose center is inside them.
+        let objects = [];
+        let selected = null;
+        let dragMode = null; // 'move' | 'rotate' | null
+        const dragOffset = { x: 0, y: 0 };
+        const HANDLE_RADIUS = 7;
+
+        const addWallBtn = document.getElementById('addWallBtn');
+        const addForceBtn = document.getElementById('addForceBtn');
+        const addSlowBtn = document.getElementById('addSlowBtn');
+        const deleteBtn = document.getElementById('deleteBtn');
+        const selectionInfo = document.getElementById('selectionInfo');
+        const rotationGroup = document.getElementById('rotationGroup');
+        const strengthGroup = document.getElementById('strengthGroup');
+        const slowGroup = document.getElementById('slowGroup');
+        const rotationSlider = document.getElementById('rotationSlider');
+        const strengthSlider = document.getElementById('strengthSlider');
+        const slowSlider = document.getElementById('slowSlider');
+        const rotationVal = document.getElementById('rotationVal');
+        const strengthVal = document.getElementById('strengthVal');
+        const slowVal = document.getElementById('slowVal');
+
+        function roundedRectPath(x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+        }
+
+        function getObjectSize(obj) {
+            if (obj.type === 'wall') {
+                return { w: obj.length, h: obj.thickness };
+            }
+            return { w: obj.width, h: obj.height };
+        }
+
+        function worldToLocal(obj, px, py) {
+            const dx = px - obj.x;
+            const dy = py - obj.y;
+            const cos = Math.cos(obj.angle);
+            const sin = Math.sin(obj.angle);
+            return { x: dx * cos + dy * sin, y: -dx * sin + dy * cos };
+        }
+
+        function localToWorld(obj, lx, ly) {
+            const cos = Math.cos(obj.angle);
+            const sin = Math.sin(obj.angle);
+            return {
+                x: obj.x + lx * cos - ly * sin,
+                y: obj.y + lx * sin + ly * cos
+            };
+        }
+
+        function getRotationHandle(obj) {
+            const size = getObjectSize(obj);
+            return localToWorld(obj, 0, -size.h / 2 - 26);
+        }
+
+        function hitTest(obj, px, py) {
+            const p = worldToLocal(obj, px, py);
+            if (obj.type !== 'wall') {
+                return Math.abs(p.x) <= obj.width / 2 && Math.abs(p.y) <= obj.height / 2;
+            }
+            // Wall: distance from point to the segment along local x
+            const half = obj.length / 2;
+            const nearestX = Math.max(-half, Math.min(half, p.x));
+            return Math.hypot(p.x - nearestX, p.y) <= obj.thickness / 2 + 6;
+        }
+
+        function addObject(type) {
+            let obj;
+            if (type === 'wall') {
+                obj = {
+                    type: 'wall',
+                    x: canvas.width / 2,
+                    y: canvas.height / 2,
+                    length: 220,
+                    thickness: 14,
+                    angle: 0
+                };
+            } else if (type === 'force') {
+                obj = {
+                    type: 'force',
+                    x: canvas.width / 2,
+                    y: canvas.height / 2,
+                    width: 220,
+                    height: 140,
+                    angle: 0,
+                    strength: 0.1
+                };
+            } else {
+                obj = {
+                    type: 'slow',
+                    x: canvas.width / 2,
+                    y: canvas.height / 2,
+                    width: 220,
+                    height: 140,
+                    angle: 0,
+                    strength: 0.1
+                };
+            }
+            objects.push(obj);
+            selected = obj;
+            dragMode = null;
+            syncSelectionUI();
+            return obj;
+        }
+
+        function deleteSelected() {
+            if (!selected) return;
+            objects = objects.filter(o => o !== selected);
+            selected = null;
+            dragMode = null;
+            syncSelectionUI();
+        }
+
+        function syncSelectionUI() {
+            const hasSelection = !!selected;
+            deleteBtn.disabled = !hasSelection;
+            rotationGroup.hidden = !hasSelection;
+            strengthGroup.hidden = !hasSelection || selected.type !== 'force';
+            slowGroup.hidden = !hasSelection || selected.type !== 'slow';
+
+            if (!hasSelection) {
+                selectionInfo.textContent = 'Nothing selected';
+                return;
+            }
+
+            if (selected.type === 'wall') {
+                selectionInfo.textContent = 'Wall selected (solid)';
+            } else if (selected.type === 'force') {
+                selectionInfo.textContent = 'Force field selected';
+            } else {
+                selectionInfo.textContent = 'Slow field selected';
+            }
+
+            let deg = Math.round(selected.angle * 180 / Math.PI) % 360;
+            if (deg < 0) deg += 360;
+            rotationSlider.value = deg;
+            rotationVal.textContent = deg;
+
+            if (selected.type === 'force') {
+                strengthSlider.value = selected.strength;
+                strengthVal.textContent = selected.strength.toFixed(2);
+            } else if (selected.type === 'slow') {
+                slowSlider.value = selected.strength;
+                slowVal.textContent = selected.strength.toFixed(2);
+            }
+        }
+
+        addWallBtn.addEventListener('click', () => addObject('wall'));
+        addForceBtn.addEventListener('click', () => addObject('force'));
+        addSlowBtn.addEventListener('click', () => addObject('slow'));
+        deleteBtn.addEventListener('click', deleteSelected);
+
+        rotationSlider.addEventListener('input', (e) => {
+            if (!selected) return;
+            selected.angle = parseInt(e.target.value) * Math.PI / 180;
+            rotationVal.textContent = e.target.value;
+        });
+
+        strengthSlider.addEventListener('input', (e) => {
+            if (!selected || selected.type !== 'force') return;
+            selected.strength = parseFloat(e.target.value);
+            strengthVal.textContent = selected.strength.toFixed(2);
+        });
+
+        slowSlider.addEventListener('input', (e) => {
+            if (!selected || selected.type !== 'slow') return;
+            selected.strength = parseFloat(e.target.value);
+            slowVal.textContent = selected.strength.toFixed(2);
+        });
+
+        window.addEventListener('keydown', (e) => {
+            const tag = e.target && e.target.tagName;
+            if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+            if (!selected) return;
+
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                e.preventDefault();
+                deleteSelected();
+                return;
+            }
+
+            const step = e.shiftKey ? 10 : 1;
+            const nudges = {
+                ArrowLeft: [-step, 0],
+                ArrowRight: [step, 0],
+                ArrowUp: [0, -step],
+                ArrowDown: [0, step]
+            };
+            if (nudges[e.key]) {
+                e.preventDefault();
+                selected.x += nudges[e.key][0];
+                selected.y += nudges[e.key][1];
+            }
+        });
+
+        function getCanvasPoint(e) {
+            const rect = canvas.getBoundingClientRect();
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+
+        canvas.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            const p = getCanvasPoint(e);
+
+            // Rotation handle takes priority
+            if (selected) {
+                const handle = getRotationHandle(selected);
+                if (Math.hypot(p.x - handle.x, p.y - handle.y) <= HANDLE_RADIUS + 4) {
+                    dragMode = 'rotate';
+                    canvas.setPointerCapture(e.pointerId);
+                    canvas.style.cursor = 'grabbing';
+                    return;
+                }
+            }
+
+            // Pick the topmost object under the pointer
+            for (let i = objects.length - 1; i >= 0; i--) {
+                if (hitTest(objects[i], p.x, p.y)) {
+                    selected = objects[i];
+                    dragMode = 'move';
+                    dragOffset.x = p.x - selected.x;
+                    dragOffset.y = p.y - selected.y;
+                    syncSelectionUI();
+                    canvas.setPointerCapture(e.pointerId);
+                    canvas.style.cursor = 'grabbing';
+                    return;
+                }
+            }
+
+            selected = null;
+            dragMode = null;
+            syncSelectionUI();
+        });
+
+        canvas.addEventListener('pointermove', (e) => {
+            const p = getCanvasPoint(e);
+
+            if (dragMode === 'move' && selected) {
+                selected.x = p.x - dragOffset.x;
+                selected.y = p.y - dragOffset.y;
+                return;
+            }
+
+            if (dragMode === 'rotate' && selected) {
+                selected.angle = Math.atan2(p.y - selected.y, p.x - selected.x) + Math.PI / 2;
+                syncSelectionUI();
+                return;
+            }
+
+            // Hover feedback
+            let overHandle = false;
+            if (selected) {
+                const handle = getRotationHandle(selected);
+                overHandle = Math.hypot(p.x - handle.x, p.y - handle.y) <= HANDLE_RADIUS + 4;
+            }
+            const overObject = objects.some(o => hitTest(o, p.x, p.y));
+            canvas.style.cursor = overHandle || overObject ? 'grab' : 'default';
+        });
+
+        function endDrag(e) {
+            if (!dragMode) return;
+            dragMode = null;
+            canvas.style.cursor = 'default';
+            if (e && canvas.hasPointerCapture(e.pointerId)) {
+                canvas.releasePointerCapture(e.pointerId);
+            }
+        }
+        canvas.addEventListener('pointerup', endDrag);
+        canvas.addEventListener('pointercancel', endDrag);
+
+        // ===================== Object physics =====================
+        function applyForces() {
+            for (const ball of balls) {
+                for (const obj of objects) {
+                    if (obj.type !== 'force' && obj.type !== 'slow') continue;
+
+                    const p = worldToLocal(obj, ball.x, ball.y);
+                    if (Math.abs(p.x) > obj.width / 2 || Math.abs(p.y) > obj.height / 2) continue;
+
+                    if (obj.type === 'force') {
+                        ball.vx += Math.cos(obj.angle) * obj.strength;
+                        ball.vy += Math.sin(obj.angle) * obj.strength;
+                    } else {
+                        // Slow field: subtract from the speed magnitude only,
+                        // so the direction of the velocity is preserved.
+                        const speed = Math.hypot(ball.vx, ball.vy);
+                        if (speed > 0) {
+                            const targetSpeed = Math.max(0, speed - obj.strength);
+                            const scale = targetSpeed / speed;
+                            ball.vx *= scale;
+                            ball.vy *= scale;
+                        }
+                    }
+                }
+            }
+        }
+
+        function collideWithWalls() {
+            for (const ball of balls) {
+                for (const obj of objects) {
+                    if (obj.type !== 'wall') continue;
+
+                    const p = worldToLocal(obj, ball.x, ball.y);
+                    const half = obj.length / 2;
+                    const nearestX = Math.max(-half, Math.min(half, p.x));
+                    const dx = p.x - nearestX;
+                    const dy = p.y;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = ball.radius + obj.thickness / 2;
+                    if (dist >= minDist) continue;
+
+                    let nx;
+                    let ny;
+                    if (dist > 0.0001) {
+                        nx = dx / dist;
+                        ny = dy / dist;
+                    } else {
+                        // Ball center lies exactly on the wall's centerline
+                        nx = 0;
+                        ny = p.y < 0 ? -1 : 1;
+                    }
+
+                    // Local normal -> world normal
+                    const cos = Math.cos(obj.angle);
+                    const sin = Math.sin(obj.angle);
+                    const worldNx = nx * cos - ny * sin;
+                    const worldNy = nx * sin + ny * cos;
+
+                    // Push out of the wall
+                    const push = minDist - dist;
+                    ball.x += worldNx * push;
+                    ball.y += worldNy * push;
+
+                    // Reflect velocity about the wall normal
+                    const vn = ball.vx * worldNx + ball.vy * worldNy;
+                    if (vn < 0) {
+                        ball.vx -= 2 * vn * worldNx;
+                        ball.vy -= 2 * vn * worldNy;
+                    }
+                }
+            }
+        }
+
+        // ===================== Object rendering =====================
+        function drawObjects() {
+            for (const obj of objects) {
+                ctx.save();
+                ctx.translate(obj.x, obj.y);
+                ctx.rotate(obj.angle);
+
+                if (obj.type === 'wall') {
+                    const halfL = obj.length / 2;
+                    const halfT = obj.thickness / 2;
+                    roundedRectPath(-halfL, -halfT, obj.length, obj.thickness, halfT);
+                    const grad = ctx.createLinearGradient(0, -halfT, 0, halfT);
+                    grad.addColorStop(0, '#e2e8f0');
+                    grad.addColorStop(1, '#94a3b8');
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                } else if (obj.type === 'force') {
+                    const halfW = obj.width / 2;
+                    const halfH = obj.height / 2;
+
+                    roundedRectPath(-halfW, -halfH, obj.width, obj.height, 10);
+                    ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+                    ctx.fill();
+                    ctx.setLineDash([8, 6]);
+                    ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Direction arrow: local +x, length reflects strength
+                    const arrowHalf = Math.min(halfW - 16, 18 + obj.strength * 90);
+                    ctx.strokeStyle = '#38bdf8';
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(-arrowHalf, 0);
+                    ctx.lineTo(arrowHalf, 0);
+                    ctx.stroke();
+
+                    const head = 10;
+                    ctx.beginPath();
+                    ctx.moveTo(arrowHalf, 0);
+                    ctx.lineTo(arrowHalf - head, -head * 0.6);
+                    ctx.moveTo(arrowHalf, 0);
+                    ctx.lineTo(arrowHalf - head, head * 0.6);
+                    ctx.stroke();
+                } else {
+                    // Slow field: amber zone with inward arrows
+                    const halfW = obj.width / 2;
+                    const halfH = obj.height / 2;
+
+                    roundedRectPath(-halfW, -halfH, obj.width, obj.height, 10);
+                    ctx.fillStyle = 'rgba(245, 158, 11, 0.10)';
+                    ctx.fill();
+                    ctx.setLineDash([8, 6]);
+                    ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+
+                    const gap = 7;
+                    const reach = Math.min(halfW - 16, 24 + obj.strength * 60);
+                    const head = 9;
+
+                    // Left arrow pointing inward (towards center)
+                    ctx.beginPath();
+                    ctx.moveTo(-reach, 0);
+                    ctx.lineTo(-gap, 0);
+                    ctx.moveTo(-gap, 0);
+                    ctx.lineTo(-gap - head, -head * 0.6);
+                    ctx.moveTo(-gap, 0);
+                    ctx.lineTo(-gap - head, head * 0.6);
+                    ctx.stroke();
+
+                    // Right arrow pointing inward
+                    ctx.beginPath();
+                    ctx.moveTo(reach, 0);
+                    ctx.lineTo(gap, 0);
+                    ctx.moveTo(gap, 0);
+                    ctx.lineTo(gap + head, -head * 0.6);
+                    ctx.moveTo(gap, 0);
+                    ctx.lineTo(gap + head, head * 0.6);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        function drawSelection() {
+            if (!selected) return;
+            const size = getObjectSize(selected);
+
+            ctx.save();
+            ctx.translate(selected.x, selected.y);
+            ctx.rotate(selected.angle);
+            roundedRectPath(-size.w / 2 - 3, -size.h / 2 - 3, size.w + 6, size.h + 6, 9);
+            ctx.strokeStyle = '#6366f1';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+
+            const edge = localToWorld(selected, 0, -size.h / 2);
+            const handle = getRotationHandle(selected);
+
+            ctx.beginPath();
+            ctx.moveTo(edge.x, edge.y);
+            ctx.lineTo(handle.x, handle.y);
+            ctx.strokeStyle = 'rgba(99, 102, 241, 0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(handle.x, handle.y, HANDLE_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = '#6366f1';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        syncSelectionUI();
 
         function initBalls() {
             // Adjust array size based on slider count
@@ -180,6 +881,14 @@
             ballCount = parseInt(e.target.value);
             countVal.textContent = ballCount;
             initBalls();
+        });
+
+        colorModeSelect.addEventListener('change', (e) => {
+            colorMode = e.target.value;
+        });
+
+        showDirectionCheckbox.addEventListener('change', (e) => {
+            showDirection = e.target.checked;
         });
 
         function resolveCollisions() {
@@ -226,14 +935,26 @@
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            drawObjects();
+
             for (let ball of balls) {
                 ball.update();
             }
+            applyForces();
             resolveCollisions();
+            collideWithWalls();
 
             for (let ball of balls) {
                 ball.draw();
             }
+
+            if (showDirection) {
+                for (let ball of balls) {
+                    ball.drawDirection();
+                }
+            }
+
+            drawSelection();
 
             requestAnimationFrame(animate);
         }
